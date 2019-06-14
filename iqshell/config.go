@@ -1,9 +1,10 @@
 package iqshell
 
 import (
+	"path/filepath"
+
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
-	"path/filepath"
 )
 
 const (
@@ -13,6 +14,8 @@ const (
 	STATUS_ERROR
 	//local error
 	STATUS_HALT
+	//upload failed because of file exists
+	UPLOAD_EXIST
 )
 
 const (

@@ -5,11 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/astaxie/beego/logs"
-	"github.com/qiniu/api.v7/auth/qbox"
-	"github.com/qiniu/api.v7/storage"
-	"github.com/syndtr/goleveldb/leveldb"
-	"github.com/syndtr/goleveldb/leveldb/opt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -18,6 +13,12 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/astaxie/beego/logs"
+	"github.com/qiniu/api.v7/auth/qbox"
+	"github.com/qiniu/api.v7/storage"
+	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/syndtr/goleveldb/leveldb/opt"
 )
 
 /*
@@ -425,6 +426,7 @@ var (
 	notOverwriteCount int64
 	failureFileCount  int64
 	skippedFileCount  int64
+	uploadExistCount  int64
 )
 
 // QiniuUpload
@@ -608,6 +610,7 @@ func QiniuUpload(threadCount int, uploadConfig *UploadConfig, exporter *FileExpo
 	logs.Informational("%20s%10d", "Total:", totalFileCount)
 	logs.Informational("%20s%10d", "Success:", successFileCount)
 	logs.Informational("%20s%10d", "Failure:", failureFileCount)
+	logs.Informational("%20s%10d", "UploadExist:", uploadExistCount)
 	logs.Informational("%20s%10d", "NotOverwrite:", notOverwriteCount)
 	logs.Informational("%20s%10d", "Skipped:", skippedFileCount)
 	logs.Informational("%20s%15s", "Duration:", time.Since(timeStart))
@@ -616,6 +619,8 @@ func QiniuUpload(threadCount int, uploadConfig *UploadConfig, exporter *FileExpo
 
 	if failureFileCount > 0 {
 		os.Exit(STATUS_ERROR)
+	} else if uploadExistCount > 0 {
+		os.Exit(UPLOAD_EXIST)
 	} else {
 		os.Exit(STATUS_OK)
 	}
@@ -799,7 +804,12 @@ func formUploadFile(uploadConfig *UploadConfig, ldb *leveldb.DB, ldbWOpt *opt.Wr
 
 	err := uploader.PutFile(context.Background(), &putRet, upToken, uploadFileKey, localFilePath, &putExtra)
 	if err != nil {
-		atomic.AddInt64(&failureFileCount, 1)
+		if strings.Contains(err.Error(), "file exists") {
+			atomic.AddInt64(&uploadExistCount, 1)
+		} else {
+			atomic.AddInt64(&failureFileCount, 1)
+		}
+
 		logs.Error("Form upload file `%s` => `%s` failed due to nerror `%v`", localFilePath, uploadFileKey, err)
 		exporter.WriteToFailedWriter(fmt.Sprintf("%s\t%s\t%v\n", localFilePath, uploadFileKey, err))
 	} else {
@@ -855,7 +865,11 @@ func resumableUploadFile(uploadConfig *UploadConfig, ldb *leveldb.DB, ldbWOpt *o
 	//resumable upload
 	err := uploader.PutFile(context.Background(), &putRet, upToken, uploadFileKey, localFilePath, &putExtra)
 	if err != nil {
-		atomic.AddInt64(&failureFileCount, 1)
+		if strings.Contains(err.Error(), "file exists") {
+			atomic.AddInt64(&uploadExistCount, 1)
+		} else {
+			atomic.AddInt64(&failureFileCount, 1)
+		}
 		logs.Error("Resumable upload file `%s` => `%s` failed due to nerror `%v`", localFilePath, uploadFileKey, err)
 		exporter.WriteToFailedWriter(fmt.Sprintf("%s\t%s\t%v\n", localFilePath, uploadFileKey, err))
 	} else {
